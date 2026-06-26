@@ -26,7 +26,9 @@ except ImportError:
 api_key = os.environ.get("DEEPSEEK_API_KEY")
 if not api_key:
     raise RuntimeError(
-        "未找到 DEEPSEEK_API_KEY。请检查 .env 文件是否存在且格式正确。"
+        "未找到 DEEPSEEK_API_KEY。\n"
+        "请将 .env.example 复制为 .env，然后把你的 Key 填进去。\n"
+        "参考命令: copy .env.example .env"
     )
 
 # ─── 2. 构造请求 ───
@@ -43,7 +45,7 @@ payload = {
     "model": "deepseek-chat",
     "messages": [
         {"role": "system", "content": "你是一个乐于助人的助手"},
-        {"role": "user",   "content": "你是什么模型？请用中文回答"},
+        {"role": "user",   "content": "北京邮电大学的英文缩写是什么？请用中文回答"},
     ],
     "stream": False,
 }
