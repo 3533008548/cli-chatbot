@@ -41,46 +41,44 @@ headers = {
     "Content-Type": "application/json",
 }
 
-payload = {
-    "model": "deepseek-chat",
-    "messages": [
-        {"role": "system", "content": "你是一个乐于助人的助手"},
-        {"role": "user",   "content": "北京邮电大学的英文缩写是什么？请用中文回答"},
-    ],
-    "stream": False,
-}
+messages = [
+    {"role": "system", "content": "你是一个乐于助人的助手"},
+    {"role": "user",   "content": "北京邮电大学是什么样的大学？请用中文回答"},
+]
 
-# ─── 3. 发送请求 ───
-print(">>> 正在调用 DeepSeek API ...\n")
+# ─── 3. Temperature 实验：遍历不同温度值 ───
+temperatures = [0, 0.5, 1.0, 1.5]
 
-resp = requests.post(url, headers=headers, json=payload, timeout=30)
-resp.raise_for_status()  # 非 2xx 直接抛异常
-
-data = resp.json()
-
-# ─── 4. 打印原始 JSON（方便理解 API 返回结构） ───
 print("=" * 60)
-print("【步骤 3】完整原始 JSON 响应：")
+print("【Temperature 实验】开始对比测试")
 print("=" * 60)
-print(json.dumps(data, ensure_ascii=False, indent=2))
-print()
 
-# ─── 5. 提取并打印模型回答 ───
-print("=" * 60)
-print("【步骤 4】模型回答内容：")
-print("=" * 60)
-content = data["choices"][0]["message"]["content"]
-print(content)
-print()
+for temp in temperatures:
+    print(f"\n{'─' * 60}")
+    print(f">>> temperature = {temp}")
+    print(f"{'─' * 60}")
 
-# ─── 6. 打印 token 用量 ───
-print("=" * 60)
-print("【步骤 5】Token 用量统计：")
-print("=" * 60)
-usage = data["usage"]
-print(f"  prompt_tokens      = {usage['prompt_tokens']}")
-print(f"  completion_tokens  = {usage['completion_tokens']}")
-print(f"  total_tokens       = {usage['total_tokens']}")
-print()
+    payload = {
+        "model": "deepseek-chat",
+        "messages": messages,
+        "temperature": temp,
+        "stream": False,
+    }
 
-print("✓ 全部执行完毕，退出码 0")
+    try:
+        resp = requests.post(url, headers=headers, json=payload, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+
+        content = data["choices"][0]["message"]["content"]
+        usage = data["usage"]
+
+        print(f"  【回答】{content}")
+        print(f"  【Token 用量】prompt={usage['prompt_tokens']}, "
+              f"completion={usage['completion_tokens']}, "
+              f"total={usage['total_tokens']}")
+    except Exception as e:
+        print(f"  ❌ 请求失败: {e}")
+
+print(f"\n{'=' * 60}")
+print("✓ Temperature 实验全部执行完毕，退出码 0")
