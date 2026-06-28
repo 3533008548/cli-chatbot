@@ -31,7 +31,7 @@ if not api_key:
         "参考命令: copy .env.example .env"
     )
 
-# ─── 2. 构造请求 ───
+# ─── 2. 多轮流式对话 ───
 import requests  # noqa: E402 (延迟导入，让用户先看到上面的错误信息)
 
 url = "https://api.deepseek.com/chat/completions"
@@ -41,44 +41,65 @@ headers = {
     "Content-Type": "application/json",
 }
 
+# 初始化对话：system + 第一轮 user 消息
 messages = [
     {"role": "system", "content": "你是一个乐于助人的助手"},
     {"role": "user",   "content": "北京邮电大学是什么样的大学？请用中文回答"},
 ]
 
-# ─── 3. Temperature 实验：遍历不同温度值 ───
-temperatures = [0, 0.5, 1.0, 1.5]
-
 print("=" * 60)
-print("【Temperature 实验】开始对比测试")
+print("【多轮流式对话】开始（输入 q 退出）")
 print("=" * 60)
 
-for temp in temperatures:
+turn = 0
+while True:
+    turn += 1
+    role_label = "助手" if turn > 1 else "助手（第一轮）"
+
     print(f"\n{'─' * 60}")
-    print(f">>> temperature = {temp}")
+    print(f">>> 第 {turn} 轮 — {role_label} 流式回复中 ...")
     print(f"{'─' * 60}")
 
     payload = {
         "model": "deepseek-chat",
         "messages": messages,
-        "temperature": temp,
-        "stream": False,
+        "stream": True,
     }
 
+    full_content = ""
     try:
-        resp = requests.post(url, headers=headers, json=payload, timeout=30)
-        resp.raise_for_status()
-        data = resp.json()
-
-        content = data["choices"][0]["message"]["content"]
-        usage = data["usage"]
-
-        print(f"  【回答】{content}")
-        print(f"  【Token 用量】prompt={usage['prompt_tokens']}, "
-              f"completion={usage['completion_tokens']}, "
-              f"total={usage['total_tokens']}")
+        with requests.post(url, headers=headers, json=payload,
+                           stream=True, timeout=60) as resp:
+            resp.raise_for_status()
+            for line in resp.iter_lines(decode_unicode=True):
+                if not line or not line.startswith("data: "):
+                    continue
+                raw = line.removeprefix("data: ")
+                if raw.strip() == "[DONE]":
+                    break
+                try:
+                    chunk = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+                delta = chunk.get("choices", [{}])[0].get("delta", {})
+                token = delta.get("content", "")
+                if token:
+                    print(token, end="", flush=True)
+                    full_content += token
+        print()  # 换行
     except Exception as e:
-        print(f"  ❌ 请求失败: {e}")
+        print(f"\n  ❌ 请求失败: {e}")
+        break
 
-print(f"\n{'=' * 60}")
-print("✓ Temperature 实验全部执行完毕，退出码 0")
+    # 追加本轮 assistant 回答到消息历史
+    messages.append({"role": "assistant", "content": full_content})
+
+    print(f"\n  [消息历史已累积 {len(messages)} 条（含 system）]")
+
+    # 获取下一轮用户输入，追加后继续
+    print(f"\n{'─' * 60}")
+    user_input = input("请输入你的下一句话（输入 q 退出）: ").strip()
+    if user_input.lower() == "q":
+        print("\n✓ 对话结束")
+        break
+    messages.append({"role": "user", "content": user_input})
