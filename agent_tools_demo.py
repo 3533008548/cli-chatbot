@@ -10,7 +10,7 @@ agent_tools_demo.py — Agent 工具调用演示
   6. 再次调 LLM → 模型把工具结果组织成自然语言回答
   7. 重复 2-6，直到 LLM 不再请求工具
 
-功能：加、减、乘、除四则运算
+功能：四则运算（合并为一个 calculator）、科学计算（sqrt/幂/三角函数等）、获取当前时间
 """
 
 import os
@@ -56,60 +56,58 @@ TOOLS = [
     {
         "type": "function",
         "function": {
-            "name": "add",
-            "description": "加法运算，返回 a + b 的结果",
+            "name": "calculator",
+            "description": "四则运算计算器，支持加、减、乘、除",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "a": {"type": "number", "description": "加数（第一个数）"},
-                    "b": {"type": "number", "description": "加数（第二个数）"},
+                    "a": {"type": "number", "description": "第一个数"},
+                    "b": {"type": "number", "description": "第二个数"},
+                    "operation": {
+                        "type": "string",
+                        "enum": ["add", "subtract", "multiply", "divide"],
+                        "description": "运算类型：add 加法, subtract 减法, multiply 乘法, divide 除法",
+                    },
                 },
-                "required": ["a", "b"],
+                "required": ["a", "b", "operation"],
             },
         },
     },
     {
         "type": "function",
         "function": {
-            "name": "subtract",
-            "description": "减法运算，返回 a - b 的结果",
+            "name": "scientific_calc",
+            "description": "科学计算器，支持 sqrt（开平方）、power（幂运算）、sin / cos / tan（三角函数）、log（自然对数）、log10（常用对数）、factorial（阶乘）、abs（绝对值）、round（四舍五入取整）",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "a": {"type": "number", "description": "被减数"},
-                    "b": {"type": "number", "description": "减数"},
+                    "operation": {
+                        "type": "string",
+                        "enum": ["sqrt", "power", "sin", "cos", "tan", "log", "log10", "factorial", "abs", "round"],
+                        "description": "科学运算类型",
+                    },
+                    "x": {"type": "number", "description": "输入值"},
+                    "y": {"type": "number", "description": "第二个输入值（仅 power 需要，其余运算可省略）"},
                 },
-                "required": ["a", "b"],
+                "required": ["operation", "x"],
             },
         },
     },
     {
         "type": "function",
         "function": {
-            "name": "multiply",
-            "description": "乘法运算，返回 a × b 的结果",
+            "name": "get_current_time",
+            "description": "获取当前的日期和时间",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "a": {"type": "number", "description": "乘数（第一个数）"},
-                    "b": {"type": "number", "description": "乘数（第二个数）"},
+                    "format": {
+                        "type": "string",
+                        "enum": ["date", "time", "datetime", "iso"],
+                        "description": "返回格式：date=仅日期, time=仅时间, datetime=日期+时间, iso=ISO 8601",
+                    },
                 },
-                "required": ["a", "b"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "divide",
-            "description": "除法运算，返回 a ÷ b 的结果，除数为零时返回错误信息",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "a": {"type": "number", "description": "被除数"},
-                    "b": {"type": "number", "description": "除数（不能为 0）"},
-                },
-                "required": ["a", "b"],
+                "required": [],
             },
         },
     },
@@ -129,30 +127,81 @@ def register_tool(func):
     return func
 
 
-@register_tool
-def add(a: float, b: float) -> dict[str, Any]:
-    result = a + b
-    return {"operation": f"{a} + {b}", "result": result}
+import math
+from datetime import datetime
 
 
 @register_tool
-def subtract(a: float, b: float) -> dict[str, Any]:
-    result = a - b
-    return {"operation": f"{a} - {b}", "result": result}
-
-
-@register_tool
-def multiply(a: float, b: float) -> dict[str, Any]:
-    result = a * b
-    return {"operation": f"{a} × {b}", "result": result}
-
-
-@register_tool
-def divide(a: float, b: float) -> dict[str, Any]:
-    if b == 0:
+def calculator(a: float, b: float, operation: str) -> dict[str, Any]:
+    """四则运算：合并加、减、乘、除为一个工具"""
+    op_map = {
+        "add": ("+", lambda: a + b),
+        "subtract": ("-", lambda: a - b),
+        "multiply": ("×", lambda: a * b),
+        "divide": ("/", lambda: a / b if b != 0 else None),
+    }
+    if operation not in op_map:
+        return {"error": f"不支持的运算: {operation}"}
+    sym, fn = op_map[operation]
+    if operation == "divide" and b == 0:
         return {"operation": f"{a} ÷ {b}", "error": "除数不能为零"}
-    result = a / b
-    return {"operation": f"{a} ÷ {b}", "result": result}
+    result = fn()
+    return {"operation": f"{a} {sym} {b}", "result": result}
+
+
+@register_tool
+def scientific_calc(operation: str, x: float, y: float = 0) -> dict[str, Any]:
+    """科学计算器：sqrt / power / 三角函数 / 对数 / 阶乘 / 绝对值 / 四舍五入"""
+    try:
+        if operation == "sqrt":
+            if x < 0:
+                return {"error": "不能对负数开平方"}
+            result = math.sqrt(x)
+        elif operation == "power":
+            result = x ** y
+        elif operation == "sin":
+            result = math.sin(x)
+        elif operation == "cos":
+            result = math.cos(x)
+        elif operation == "tan":
+            result = math.tan(x)
+        elif operation == "log":
+            if x <= 0:
+                return {"error": "对数自变量必须大于 0"}
+            result = math.log(x)
+        elif operation == "log10":
+            if x <= 0:
+                return {"error": "对数自变量必须大于 0"}
+            result = math.log10(x)
+        elif operation == "factorial":
+            if x < 0 or x != int(x):
+                return {"error": "阶乘要求非负整数"}
+            result = math.factorial(int(x))
+        elif operation == "abs":
+            result = abs(x)
+        elif operation == "round":
+            result = round(x)
+        else:
+            return {"error": f"不支持的运算: {operation}"}
+        return {"operation": f"{operation}({x})", "result": result}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@register_tool
+def get_current_time(format: str = "datetime") -> dict[str, Any]:
+    """获取当前日期和时间"""
+    now = datetime.now()
+    fmt_map = {
+        "date": "%Y-%m-%d",
+        "time": "%H:%M:%S",
+        "datetime": "%Y-%m-%d %H:%M:%S",
+        "iso": now.isoformat(),
+    }
+    if format == "iso":
+        return {"format": "ISO 8601", "value": fmt_map["iso"]}
+    fmt = fmt_map.get(format, "%Y-%m-%d %H:%M:%S")
+    return {"format": format, "value": now.strftime(fmt)}
 
 
 def execute_tool(name: str, arguments: dict) -> str:
@@ -182,8 +231,11 @@ def agent_step(user_input: str) -> list[dict]:
         {
             "role": "system",
             "content": (
-                "你是一个计算助手，可以使用 add / subtract / multiply / divide "
-                "工具完成四则运算。请按步骤推理，需要计算时就调用工具。"
+                "你是一个智能助手，拥有以下工具：\n"
+                "1. calculator — 四则运算（add/subtract/multiply/divide）\n"
+                "2. scientific_calc — 科学计算（sqrt/power/sin/cos/tan/log/log10/factorial/abs/round）\n"
+                "3. get_current_time — 获取当前时间\n"
+                "请按步骤推理，需要计算或获取信息时就调用工具。"
                 "如果表达式包含多步运算（如 (1+2)*3），请分步调用工具。"
             ),
         },
@@ -255,9 +307,9 @@ def agent_step(user_input: str) -> list[dict]:
 
 def main():
     print("=" * 60)
-    print("【Agent 工具调用演示】加减乘除四则运算")
+    print("【Agent 工具调用演示】四则运算 + 科学计算 + 当前时间")
     print("=" * 60)
-    print("输入数学表达式，例如: (15 + 27) × 3 - 10 ÷ 2")
+    print("例如: (15 + 27) × 3 - 10 ÷ 2")
     print("输入 q 退出\n")
 
     while True:
